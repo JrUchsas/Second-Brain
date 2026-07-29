@@ -14,6 +14,7 @@ class Note extends Model
 
     protected $fillable = [
         'user_id',
+        'notebook_id',
         'title',
         'content',
         'summary',
@@ -28,6 +29,16 @@ class Note extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the notebook that contains the note.
+     *
+     * @return BelongsTo<Notebook, $this>
+     */
+    public function notebook(): BelongsTo
+    {
+        return $this->belongsTo(Notebook::class);
     }
 
     /**

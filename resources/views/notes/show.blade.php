@@ -7,16 +7,37 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                     </svg>
                 </a>
-                <h2 class="font-bold text-xl text-gray-800 dark:text-slate-100 leading-tight">
-                    {{ $note->title ?? 'Untitled Note' }}
-                </h2>
+                <div>
+                    <h2 class="font-bold text-xl text-gray-800 dark:text-slate-100 leading-tight">
+                        {{ $note->title ?? 'Untitled Note' }}
+                    </h2>
+                    
+                    <!-- Move Note to Notebook Dropdown -->
+                    <form action="{{ route('notes.notebook', $note) }}" method="POST" class="inline-flex items-center gap-1.5 mt-1">
+                        @csrf
+                        @method('PATCH')
+                        <span class="text-xs text-gray-400 dark:text-slate-500 font-medium">Notebook:</span>
+                        <select
+                            name="notebook_id"
+                            onchange="this.form.submit()"
+                            class="text-xs rounded-lg border-gray-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 py-1 pl-2.5 pr-7 font-semibold focus:ring-indigo-500 focus:border-indigo-500 shadow-sm cursor-pointer"
+                        >
+                            <option value="">None (General)</option>
+                            @foreach($notebooks as $nb)
+                                <option value="{{ $nb->id }}" {{ $note->notebook_id === $nb->id ? 'selected' : '' }}>
+                                    📁 {{ $nb->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </form>
+                </div>
             </div>
 
             <div class="flex items-center gap-3">
                 @if ($note->status === 'completed')
                     <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                         <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        AI Processing Completed
+                        AI Completed
                     </span>
                 @elseif ($note->status === 'processing')
                     <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
@@ -24,10 +45,6 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                         Processing...
-                    </span>
-                @elseif ($note->status === 'failed')
-                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                        Processing Failed
                     </span>
                 @else
                     <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
@@ -89,9 +106,9 @@
             <!-- Main Note Body -->
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none p-8">
                 
-                <!-- Tags -->
+                <!-- Tags Row -->
                 @if ($note->tags->isNotEmpty())
-                    <div class="flex flex-wrap gap-2 mb-6">
+                    <div class="flex flex-wrap gap-2 mb-6 pb-4 border-b border-gray-100 dark:border-slate-800">
                         @foreach ($note->tags as $tag)
                             <span class="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50">
                                 #{{ $tag->name }}

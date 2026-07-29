@@ -57,4 +57,14 @@ class User extends Authenticatable
     {
         return $this->hasMany(Note::class);
     }
+
+    /**
+     * Get the notebooks owned by the user.
+     *
+     * @return HasMany<Notebook, $this>
+     */
+    public function notebooks(): HasMany
+    {
+        return $this->hasMany(Notebook::class);
+    }
 }

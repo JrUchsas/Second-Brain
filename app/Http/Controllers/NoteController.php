@@ -14,18 +14,27 @@ use Illuminate\View\View;
 class NoteController extends Controller
 {
     /**
-     * Display a listing of the user's notes.
+     * Display a listing of the user's notes, filtered by notebook if selected.
      */
-    public function index(): View
+    public function index(Request $request): View
     {
-        $notes = auth()->user()
+        $notebookId = $request->query('notebook');
+
+        $query = auth()->user()
             ->notes()
-            ->with(['tags', 'linkedNotes'])
-            ->latest()
-            ->get();
+            ->with(['tags', 'linkedNotes', 'notebook']);
+
+        if (! empty($notebookId)) {
+            $query->where('notebook_id', $notebookId);
+        }
+
+        $notes = $query->latest()->get();
+        $notebooks = auth()->user()->notebooks()->get();
 
         return view('notes.index', [
             'notes' => $notes,
+            'notebooks' => $notebooks,
+            'activeNotebookId' => $notebookId ? (int) $notebookId : null,
             'searchQuery' => null,
         ]);
     }
@@ -35,7 +44,11 @@ class NoteController extends Controller
      */
     public function create(): View
     {
-        return view('notes.create');
+        $notebooks = auth()->user()->notebooks()->get();
+
+        return view('notes.create', [
+            'notebooks' => $notebooks,
+        ]);
     }
 
     /**
@@ -45,18 +58,19 @@ class NoteController extends Controller
     {
         $validated = $request->validate([
             'content' => ['required', 'string', 'min:3'],
+            'notebook_id' => ['nullable', 'exists:notebooks,id'],
         ]);
 
         /** @var Note $note */
         $note = auth()->user()->notes()->create([
             'content' => $validated['content'],
+            'notebook_id' => $validated['notebook_id'] ?? null,
             'status' => 'pending',
         ]);
 
-        // Execute background job after sending response so the user sees live real-time status progression on dashboard
         dispatch(function () use ($note) {
             $note->update(['status' => 'processing']);
-            sleep(2); // Short delay to showcase live processing on the dashboard
+            sleep(1);
             app(AnalyzeNote::class, ['note' => $note])->handle(app(OpenAIService::class));
         })->afterResponse();
 
@@ -72,11 +86,38 @@ class NoteController extends Controller
     {
         abort_if($note->user_id !== auth()->id(), 403);
 
-        $note->load(['tags', 'linkedNotes']);
+        $note->load(['tags', 'linkedNotes', 'notebook']);
+        $notebooks = auth()->user()->notebooks()->get();
 
         return view('notes.show', [
             'note' => $note,
+            'notebooks' => $notebooks,
         ]);
+    }
+
+    /**
+     * Move an existing note to a different notebook.
+     */
+    public function updateNotebook(Note $note, Request $request): JsonResponse|RedirectResponse
+    {
+        abort_if($note->user_id !== auth()->id(), 403);
+
+        $validated = $request->validate([
+            'notebook_id' => ['nullable', 'exists:notebooks,id'],
+        ]);
+
+        $note->update([
+            'notebook_id' => $validated['notebook_id'] ?: null,
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'notebook_id' => $note->notebook_id,
+            ]);
+        }
+
+        return redirect()->back()->with('status', 'Moved note to notebook!');
     }
 
     /**
@@ -86,7 +127,7 @@ class NoteController extends Controller
     {
         abort_if($note->user_id !== auth()->id(), 403);
 
-        $note->load('tags');
+        $note->load(['tags', 'notebook']);
 
         return response()->json([
             'id' => $note->id,
@@ -94,6 +135,76 @@ class NoteController extends Controller
             'title' => $note->title ?? 'Untitled Note',
             'summary' => $note->summary ?? Str::limit($note->content, 140),
             'tags' => $note->tags->pluck('name')->all(),
+            'notebook' => $note->notebook ? $note->notebook->name : null,
+        ]);
+    }
+
+    /**
+     * Render the Interactive 2D Knowledge Graph page.
+     */
+    public function graph(): View
+    {
+        return view('graph');
+    }
+
+    /**
+     * Return nodes and edges for the Knowledge Graph visualization.
+     */
+    public function graphData(): JsonResponse
+    {
+        $notes = auth()->user()->notes()->with(['tags', 'linkedNotes', 'notebook'])->get();
+
+        $nodes = [];
+        $edges = [];
+        $addedTagIds = [];
+
+        foreach ($notes as $note) {
+            $nodes[] = [
+                'id' => 'note_'.$note->id,
+                'label' => $note->title ?? 'Untitled Note',
+                'group' => 'notes',
+                'note_id' => $note->id,
+                'color' => '#6366f1',
+                'shape' => 'dot',
+                'size' => 20,
+            ];
+
+            foreach ($note->tags as $tag) {
+                $tagNodeId = 'tag_'.$tag->id;
+                if (! isset($addedTagIds[$tag->id])) {
+                    $nodes[] = [
+                        'id' => $tagNodeId,
+                        'label' => '#'.$tag->name,
+                        'group' => 'tags',
+                        'color' => '#10b981',
+                        'shape' => 'ellipse',
+                        'size' => 14,
+                    ];
+                    $addedTagIds[$tag->id] = true;
+                }
+
+                $edges[] = [
+                    'from' => 'note_'.$note->id,
+                    'to' => $tagNodeId,
+                    'color' => ['color' => '#cbd5e1', 'highlight' => '#818cf8'],
+                ];
+            }
+
+            foreach ($note->linkedNotes as $linked) {
+                if ($note->id < $linked->id) {
+                    $edges[] = [
+                        'from' => 'note_'.$note->id,
+                        'to' => 'note_'.$linked->id,
+                        'color' => ['color' => '#6366f1', 'highlight' => '#4f46e5'],
+                        'width' => 2,
+                    ];
+                }
+            }
+        }
+
+        return response()->json([
+            'nodes' => $nodes,
+            'edges' => $edges,
         ]);
     }
 
@@ -103,24 +214,25 @@ class NoteController extends Controller
     public function search(Request $request): View
     {
         $query = trim((string) $request->input('q'));
+        $notebooks = auth()->user()->notebooks()->get();
 
         if (empty($query)) {
             return view('notes.index', [
-                'notes' => auth()->user()->notes()->with(['tags', 'linkedNotes'])->latest()->get(),
+                'notes' => auth()->user()->notes()->with(['tags', 'linkedNotes', 'notebook'])->latest()->get(),
+                'notebooks' => $notebooks,
+                'activeNotebookId' => null,
                 'searchQuery' => null,
             ]);
         }
 
-        // Use Scout search filtered by user_id with fallback to Eloquent
         $notes = Note::search($query)
             ->where('user_id', auth()->id())
             ->get();
 
-        // If Scout returns empty or database driver fallback, perform Eloquent search
         if ($notes->isEmpty()) {
             $notes = auth()->user()
                 ->notes()
-                ->with(['tags', 'linkedNotes'])
+                ->with(['tags', 'linkedNotes', 'notebook'])
                 ->where(function ($q) use ($query) {
                     $q->where('title', 'like', "%{$query}%")
                         ->orWhere('summary', 'like', "%{$query}%")
@@ -132,11 +244,13 @@ class NoteController extends Controller
                 ->latest()
                 ->get();
         } else {
-            $notes->load(['tags', 'linkedNotes']);
+            $notes->load(['tags', 'linkedNotes', 'notebook']);
         }
 
         return view('notes.index', [
             'notes' => $notes,
+            'notebooks' => $notebooks,
+            'activeNotebookId' => null,
             'searchQuery' => $query,
         ]);
     }

@@ -32,6 +32,26 @@
                 <form method="POST" action="{{ route('notes.store') }}" class="space-y-6">
                     @csrf
 
+                    @if ($notebooks->isNotEmpty())
+                        <div>
+                            <label for="notebook_id" class="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
+                                Select Notebook / Category (Optional)
+                            </label>
+                            <select
+                                id="notebook_id"
+                                name="notebook_id"
+                                class="w-full rounded-xl border-gray-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 text-sm focus:border-indigo-500 focus:ring focus:ring-indigo-200/50 p-3"
+                            >
+                                <option value="">None (General)</option>
+                                @foreach ($notebooks as $nb)
+                                    <option value="{{ $nb->id }}" {{ old('notebook_id') == $nb->id ? 'selected' : '' }}>
+                                        📁 {{ $nb->name }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @endif
+
                     <div>
                         <label for="content" class="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                             Raw Note Content
@@ -39,7 +59,7 @@
                         <textarea
                             id="content"
                             name="content"
-                            rows="12"
+                            rows="10"
                             required
                             placeholder="Type or paste anything here... (e.g. key takeaways from a meeting, raw project idea, tech article notes)"
                             class="w-full rounded-xl border-gray-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 focus:border-indigo-500 focus:ring focus:ring-indigo-200/50 shadow-sm font-mono leading-relaxed p-4 text-base"

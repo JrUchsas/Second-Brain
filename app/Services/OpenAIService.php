@@ -11,7 +11,7 @@ class OpenAIService
     /**
      * Analyze raw note content or topic prompt, returning title, summary, tags, and AI generated ideas.
      *
-     * @return array{title: string, summary: string, tags: list<string>, generated_ideas: string}
+     * @return array{title: string, summary: string, tags: list<string>, generated_ideas: string, tasks: list<string>}
      */
     public function analyze(string $content): array
     {
@@ -19,7 +19,10 @@ class OpenAIService
 
         // Check if content is empty or gibberish
         if ($this->isGibberish($clean)) {
-            return $this->meaninglessResponse($clean);
+            $res = $this->meaninglessResponse($clean);
+            $res['tasks'] = [];
+
+            return $res;
         }
 
         // Auto-correct misspelled words and typos
@@ -40,7 +43,7 @@ class OpenAIService
                         'messages' => [
                             [
                                 'role' => 'system',
-                                'content' => 'You are an AI Second Brain knowledge engine. Analyze the provided note text or prompt. First, auto-correct any misspelled words or typos (e.g. "videoes" -> "videos", "larvel" -> "laravel", "budge" -> "budgie", "pythn" -> "python"). If the input is meaningless, random keystrokes (e.g. "asdasfasf", "qwerty"), or empty, set title to "Meaningless Input", summary to "The provided text does not contain meaningful content.", tags to ["invalid-input"], and generated_ideas to "• Please enter meaningful thoughts or topics to generate AI insights." Otherwise, return a JSON object with exact keys: "title" (concise descriptive title), "summary" (2-sentence executive summary), "tags" (array of 3-5 tags), "generated_ideas" (3-5 markdown bullet points tailored specifically to the context).',
+                                'content' => 'You are an AI Second Brain knowledge engine. Analyze the provided note text or prompt. Return a JSON object with exact keys: "title" (concise title), "summary" (2-sentence summary), "tags" (array of 3-5 tags), "generated_ideas" (3-5 markdown bullet points).',
                             ],
                             [
                                 'role' => 'user',
@@ -61,6 +64,7 @@ class OpenAIService
                             'summary' => (string) ($decoded['summary'] ?? ''),
                             'tags' => is_array($decoded['tags'] ?? null) ? array_values(array_map('strval', $decoded['tags'])) : [],
                             'generated_ideas' => (string) ($decoded['generated_ideas'] ?? ''),
+                            'tasks' => [],
                         ];
                     }
                 }
@@ -71,7 +75,10 @@ class OpenAIService
             }
         }
 
-        return $this->fallbackAnalysis($correctedContent);
+        $fallback = $this->fallbackAnalysis($correctedContent);
+        $fallback['tasks'] = [];
+
+        return $fallback;
     }
 
     /**
@@ -79,8 +86,9 @@ class OpenAIService
      */
     protected function correctSpelling(string $text): string
     {
-        // Common exact typo mapping dictionary
         $replacements = [
+            'ghroceries' => 'groceries',
+            'grocerie' => 'groceries',
             'videoes' => 'videos',
             'vidio' => 'videos',
             'vidoes' => 'videos',
@@ -116,7 +124,7 @@ class OpenAIService
         $dictionary = [
             'valorant', 'youtube', 'laravel', 'python', 'javascript', 'budgie', 'videos',
             'recipe', 'workout', 'tutorial', 'project', 'gaming', 'study', 'exercise',
-            'business', 'fitness', 'health', 'shopping', 'software', 'programming',
+            'business', 'fitness', 'health', 'shopping', 'software', 'programming', 'groceries',
         ];
 
         $words = explode(' ', $text);
@@ -130,10 +138,9 @@ class OpenAIService
                 continue;
             }
 
-            // Fuzzy Levenshtein match for words of 4+ letters
             if (strlen($cleanWord) >= 4) {
                 $closest = null;
-                $shortest = 3; // Maximum allowed edit distance is 2
+                $shortest = 3;
 
                 foreach ($dictionary as $dictWord) {
                     $lev = levenshtein($cleanWord, $dictWord);
@@ -167,22 +174,18 @@ class OpenAIService
             return true;
         }
 
-        // Remove spaces to analyze letter patterns
         $lettersOnly = preg_replace('/[^a-z]/i', '', $clean);
         $len = strlen($lettersOnly);
 
         if ($len > 0) {
-            // Count vowels
             preg_match_all('/[aeiouy]/i', $lettersOnly, $vowels);
             $vowelRatio = count($vowels[0] ?? []) / $len;
 
-            // Real English text typically has a vowel ratio between 25% and 50%
             if ($len >= 6 && ($vowelRatio < 0.15 || $vowelRatio > 0.70)) {
                 return true;
             }
         }
 
-        // Common keyboard mashing patterns
         $mashPatterns = [
             'asdf', 'sdfg', 'dfgh', 'fghj', 'ghjk', 'hjkl',
             'qwerty', 'werty', 'zxcv', 'xcvb', 'cvbn',
@@ -226,7 +229,6 @@ class OpenAIService
         $clean = trim(preg_replace('/\s+/', ' ', $content));
         $lower = strtolower($clean);
 
-        // Extract key words & clean stop words
         preg_match_all('/\b[a-zA-Z]{3,}\b/', $lower, $matches);
         $words = $matches[0] ?? [];
         $stopWords = [
@@ -245,8 +247,17 @@ class OpenAIService
         $mainTopic = ! empty($keywords[0]) ? ucfirst($keywords[0]) : 'Topic';
         $secondaryTopic = ! empty($keywords[1]) ? ucfirst($keywords[1]) : 'Insights';
 
-        // 1. Gaming / Esports (Valorant, CSGO, Minecraft, Fortnite, etc.)
-        if (preg_match('/\b(valorant|csgo|minecraft|fortnite|apex|league|overwatch|game|gaming|esports|playstation|xbox|steam|gamer)\b/i', $lower, $m)) {
+        // 1. Groceries & Shopping List
+        if (preg_match('/\b(grocery|groceries|supermarket|market|milk|eggs|bread|apples|fruits|produce|food)\b/i', $lower)) {
+            $title = 'Grocery & Shopping To-Do List';
+            $summary = 'Actionable grocery shopping list, fresh produce, pantry restock, and store items to purchase.';
+            $ideas = "• **Fresh Fruits & Vegetables**: Pick up fresh apples, bananas, leafy greens, and seasonal produce.\n"
+                ."• **Dairy & Refrigerated Items**: Restock milk, eggs, cheese, butter, and yogurt.\n"
+                ."• **Pantry & Grains**: Stock up on bread, rice, pasta, cereal, and cooking oil.\n"
+                .'• **Snacks & Household**: Grab healthy snacks, coffee/tea, and household essentials.';
+        }
+        // 2. Gaming / Esports (Valorant, CSGO, Minecraft, Fortnite, etc.)
+        elseif (preg_match('/\b(valorant|csgo|minecraft|fortnite|apex|league|overwatch|game|gaming|esports|playstation|xbox|steam|gamer)\b/i', $lower, $m)) {
             $game = ucfirst($m[1]);
             $title = "{$game} Gameplay & Strategy Guide";
             $summary = "Curated gameplay takeaways, pro VOD analysis, agent/weapon mechanics, and competitive rank strategies for {$game}.";
@@ -255,7 +266,7 @@ class OpenAIService
                 ."• **Creator & Lineup Playlist**: Bookmark top creator guides for map-specific lineups, utility placement, and setups.\n"
                 .'• **Competitive Teamplay & Comms**: Focus on team economy, clear info callouts, and trade-fragging during ranked matches.';
         }
-        // 2. YouTube / Video Watching / Streaming
+        // 3. YouTube / Video Watching / Streaming
         elseif (preg_match('/\b(youtube|video|videos|stream|movie|podcast|channel|watch)\b/i', $lower, $m)) {
             $title = "{$mainTopic} Video Watchlist & Content Notes";
             $summary = "Curated video playlist, key timestamps, tutorial notes, and content takeaways for {$mainTopic}.";
@@ -264,7 +275,7 @@ class OpenAIService
                 ."• **Practical Hands-On Application**: Practice and test techniques shown in video walkthroughs immediately after watching.\n"
                 .'• **Community & Clip Highlights**: Share notable clips or insightful breakdowns with study groups and community forums.';
         }
-        // 3. Learning / Study / Courses / Tutorials
+        // 4. Learning / Study / Courses / Tutorials
         elseif (preg_match('/\b(learn|study|course|tutorial|exam|read|book|class|subject|chapter)\b/i', $lower, $m)) {
             $title = "{$mainTopic} Learning Roadmap & Study Plan";
             $summary = "Structured learning objectives, study notes, practice exercises, and key takeaway summaries for {$mainTopic}.";
@@ -273,7 +284,7 @@ class OpenAIService
                 ."• **Hands-On Exercises**: Complete practical projects or practice questions to test and reinforce understanding.\n"
                 .'• **Progress Review & Self-Assessment**: Evaluate weekly progress and summarize key takeaways in your digital notes.';
         }
-        // 4. Shopping / Purchasing / Gear
+        // 5. Shopping / Purchasing / Gear
         elseif (preg_match('/\b(buy|purchase|order|price|laptop|phone|gear|shop|deal)\b/i', $lower, $m)) {
             $title = "{$mainTopic} Buying Guide & Product Comparison";
             $summary = "Feature comparison, budget evaluation, specs breakdown, and purchasing strategy for {$mainTopic}.";
@@ -282,7 +293,7 @@ class OpenAIService
                 ."• **Warranty & Support Review**: Check warranty coverage, return policies, and long-term durability reviews.\n"
                 .'• **Final Decision Checklist**: Verify compatibility with your workflow before completing the purchase.';
         }
-        // 5. Pets & Animal Care
+        // 6. Pets & Animal Care
         elseif (preg_match('/\b(budgie|bird|pet|dog|cat|parrot|animal|fish|hamster|rabbit)\b/i', $lower, $m)) {
             $petName = ucfirst($m[1]);
             $title = "Complete {$petName} Care & Wellness Guide";
@@ -292,7 +303,7 @@ class OpenAIService
                 ."• **Daily Interaction & Exercise**: Schedule dedicated time for physical activity, bonding, and safe play sessions.\n"
                 .'• **Health & Routine Monitoring**: Keep track of appetite, behavior, grooming, and schedule regular veterinary checkups.';
         }
-        // 6. Software / Web Development / Code
+        // 7. Software / Web Development / Code
         elseif (preg_match('/\b(laravel|php|js|javascript|python|coding|react|vue|api|code|database|sql)\b/i', $lower, $m)) {
             $tech = strtoupper($m[1]);
             $title = "{$tech} Architecture & Implementation Roadmap";
@@ -302,7 +313,7 @@ class OpenAIService
                 ."• **Search & Query Optimization**: Utilize database indexes and Scout full-text search for fast data retrieval.\n"
                 .'• **Security & Testing Suite**: Enforce robust validation, rate limiting, and write comprehensive Pest feature tests.';
         }
-        // 7. Cooking & Recipes
+        // 8. Cooking & Recipes
         elseif (preg_match('/\b(recipe|cook|food|bake|kitchen|meal|dish|dinner|lunch|breakfast|pizza|bread)\b/i', $lower, $m)) {
             $title = "{$mainTopic} Preparation Guide & Recipe Breakdown";
             $summary = 'Preparation steps, ingredient selection, flavor balance, and cooking guidelines for optimal results.';
@@ -311,7 +322,7 @@ class OpenAIService
                 ."• **Seasoning & Presentation**: Balance acidity, salt, and herbs, finishing with clean visual plating.\n"
                 .'• **Safe Storage & Meal Prep**: Store leftovers in sealed containers and plan portioning for upcoming meals.';
         }
-        // 8. Health & Fitness
+        // 9. Health & Fitness
         elseif (preg_match('/\b(workout|fitness|exercise|diet|gym|health|running|muscle|weight)\b/i', $lower, $m)) {
             $title = "{$mainTopic} Fitness & Wellness Action Plan";
             $summary = 'Targeted exercise routine, nutrition guidelines, recovery protocols, and progress tracking.';
@@ -320,7 +331,7 @@ class OpenAIService
                 ."• **Rest & Recovery Optimization**: Prioritize quality sleep, active recovery, and mobility work to prevent injury.\n"
                 .'• **Progress Tracking**: Log weekly performance metrics and adjust exercise intensity accordingly.';
         }
-        // 9. Business & Finance
+        // 10. Business & Finance
         elseif (preg_match('/\b(business|startup|finance|money|marketing|sales|product|growth|invest|stock)\b/i', $lower, $m)) {
             $title = "{$mainTopic} Business Strategy & Roadmap";
             $summary = 'Market analysis, value proposition, revenue model, and growth execution roadmap.';
@@ -329,7 +340,7 @@ class OpenAIService
                 ."• **Financial Modeling**: Monitor key metrics including Customer Acquisition Cost (CAC) and Lifetime Value (LTV).\n"
                 .'• **Iterative Feedback Loop**: Collect user analytics, run continuous experiments, and refine core offerings.';
         }
-        // 10. Contextual General Fallback
+        // 11. Contextual General Fallback
         else {
             $firstLine = preg_split('/[.!?\n]/', $clean)[0] ?? $clean;
             $titleStr = strlen($firstLine) > 50 ? substr($firstLine, 0, 47).'...' : $firstLine;

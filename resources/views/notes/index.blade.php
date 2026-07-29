@@ -32,7 +32,10 @@
         </div>
     </x-slot>
 
-    <div class="py-12 bg-gray-50/50 dark:bg-slate-950 min-h-screen transition-colors duration-200">
+    <div
+        x-data="{ showNewNotebookModal: false }"
+        class="py-12 bg-gray-50/50 dark:bg-slate-950 min-h-screen transition-colors duration-200"
+    >
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
 
             @if (session('status'))
@@ -45,6 +48,37 @@
                     </div>
                 </div>
             @endif
+
+            <!-- Feature 5: Notebooks Filter Tabs & Add Notebook Button -->
+            <div class="mb-8 flex items-center justify-between gap-4 overflow-x-auto pb-2 border-b border-gray-200/60 dark:border-slate-800">
+                <div class="flex items-center gap-2 shrink-0">
+                    <a
+                        href="{{ route('notes.index') }}"
+                        class="px-4 py-2 rounded-xl text-sm font-semibold transition border {{ is_null($activeNotebookId) ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-300 border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800' }}"
+                    >
+                        📚 All Notes
+                    </a>
+
+                    @foreach ($notebooks as $nb)
+                        <div class="relative group flex items-center">
+                            <a
+                                href="{{ route('notes.index', ['notebook' => $nb->id]) }}"
+                                class="px-4 py-2 rounded-xl text-sm font-semibold transition border flex items-center gap-1.5 {{ $activeNotebookId === $nb->id ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-300 border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800' }}"
+                            >
+                                📁 {{ $nb->name }}
+                            </a>
+                        </div>
+                    @endforeach
+                </div>
+
+                <button
+                    @click="showNewNotebookModal = true"
+                    type="button"
+                    class="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 transition flex items-center gap-1 shrink-0"
+                >
+                    + New Notebook
+                </button>
+            </div>
 
             @if (!empty($searchQuery))
                 <div class="mb-6 flex items-center justify-between bg-indigo-50/50 dark:bg-indigo-950/30 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
@@ -140,9 +174,11 @@
                                     </template>
 
                                     <div class="flex items-center gap-2">
-                                        <span class="text-xs text-gray-400 dark:text-slate-500 font-medium">
-                                            {{ $note->created_at->diffForHumans() }}
-                                        </span>
+                                        @if($note->notebook)
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                                📁 {{ $note->notebook->name }}
+                                            </span>
+                                        @endif
                                         <form action="{{ route('notes.destroy', $note) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this note?');" class="inline" @click.stop>
                                             @csrf
                                             @method('DELETE')
@@ -188,5 +224,43 @@
             @endif
 
         </div>
+
+        <!-- New Notebook Modal -->
+        <div x-show="showNewNotebookModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+            <div @click.away="showNewNotebookModal = false" class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6 border border-gray-100 dark:border-slate-800">
+                <h3 class="font-bold text-lg text-gray-900 dark:text-slate-100 mb-4">Create New Notebook</h3>
+                
+                <form action="{{ route('notebooks.store') }}" method="POST">
+                    @csrf
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">Notebook Name</label>
+                        <input
+                            type="text"
+                            name="name"
+                            required
+                            placeholder="e.g. Work, Gaming, Personal, Study"
+                            class="w-full rounded-xl border-gray-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 text-sm focus:border-indigo-500 focus:ring focus:ring-indigo-200/50"
+                        />
+                    </div>
+
+                    <div class="flex justify-end gap-3">
+                        <button
+                            type="button"
+                            @click="showNewNotebookModal = false"
+                            class="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-md transition"
+                        >
+                            Create Notebook
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
     </div>
 </x-app-layout>

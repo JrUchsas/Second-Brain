@@ -2,6 +2,7 @@
 
 use App\Jobs\AnalyzeNote;
 use App\Models\Note;
+use App\Models\Notebook;
 use App\Models\User;
 use App\Services\OpenAIService;
 
@@ -54,6 +55,7 @@ it('analyzes note content using OpenAIService', function () {
             'summary' => 'AI is changing note taking.',
             'tags' => ['ai', 'knowledge', 'productivity'],
             'generated_ideas' => '• AI Knowledge Graph Integration',
+            'tasks' => [],
         ]);
 
     $job = new AnalyzeNote($note);
@@ -82,6 +84,40 @@ it('auto-corrects typos and misspelled words before analyzing note', function ()
 
     expect($result['title'])->toContain('Valorant');
     expect($result['tags'])->toContain('valorant');
+});
+
+it('creates a notebook and filters notes by notebook', function () {
+    $user = User::factory()->create();
+    $notebook = Notebook::create(['user_id' => $user->id, 'name' => 'Gaming']);
+    $note = Note::factory()->create(['user_id' => $user->id, 'notebook_id' => $notebook->id]);
+
+    $response = $this->actingAs($user)->get("/notes?notebook={$notebook->id}");
+
+    $response->assertStatus(200);
+    $response->assertSee('Gaming');
+});
+
+it('allows moving an existing note to a different notebook', function () {
+    $user = User::factory()->create();
+    $notebook = Notebook::create(['user_id' => $user->id, 'name' => 'Gaming']);
+    $note = Note::factory()->create(['user_id' => $user->id, 'notebook_id' => null]);
+
+    $response = $this->actingAs($user)->patch("/notes/{$note->id}/notebook", [
+        'notebook_id' => $notebook->id,
+    ]);
+
+    $response->assertRedirect();
+    expect($note->fresh()->notebook_id)->toBe($notebook->id);
+});
+
+it('returns knowledge graph data as json', function () {
+    $user = User::factory()->create();
+    $note = Note::factory()->create(['user_id' => $user->id, 'title' => 'Graph Test Note']);
+
+    $response = $this->actingAs($user)->getJson('/graph/data');
+
+    $response->assertStatus(200);
+    $response->assertJsonStructure(['nodes', 'edges']);
 });
 
 it('returns note status payload via JSON endpoint', function () {
