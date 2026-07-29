@@ -76,6 +76,14 @@ it('detects gibberish input and marks analysis as invalid input', function () {
     expect($result['tags'])->toContain('invalid-input');
 });
 
+it('auto-corrects typos and misspelled words before analyzing note', function () {
+    $service = new OpenAIService;
+    $result = $service->analyze('valornt videoes watch in yotube');
+
+    expect($result['title'])->toContain('Valorant');
+    expect($result['tags'])->toContain('valorant');
+});
+
 it('returns note status payload via JSON endpoint', function () {
     $user = User::factory()->create();
     $note = Note::factory()->create([

@@ -22,6 +22,9 @@ class OpenAIService
             return $this->meaninglessResponse($clean);
         }
 
+        // Auto-correct misspelled words and typos
+        $correctedContent = $this->correctSpelling($clean);
+
         $apiKey = config('services.openai.key') ?: env('OPENAI_API_KEY');
 
         if (! empty($apiKey)) {
@@ -37,11 +40,11 @@ class OpenAIService
                         'messages' => [
                             [
                                 'role' => 'system',
-                                'content' => 'You are an AI Second Brain knowledge engine. Analyze the provided note text or prompt. If the input is meaningless, random keystrokes (e.g. "asdasfasf", "qwerty"), or empty, set title to "Meaningless Input", summary to "The provided text does not contain meaningful content.", tags to ["invalid-input"], and generated_ideas to "• Please enter meaningful thoughts or topics to generate AI insights." Otherwise, return a JSON object with exact keys: "title" (concise descriptive title), "summary" (2-sentence executive summary), "tags" (array of 3-5 tags), "generated_ideas" (3-5 markdown bullet points tailored specifically to the context).',
+                                'content' => 'You are an AI Second Brain knowledge engine. Analyze the provided note text or prompt. First, auto-correct any misspelled words or typos (e.g. "videoes" -> "videos", "larvel" -> "laravel", "budge" -> "budgie", "pythn" -> "python"). If the input is meaningless, random keystrokes (e.g. "asdasfasf", "qwerty"), or empty, set title to "Meaningless Input", summary to "The provided text does not contain meaningful content.", tags to ["invalid-input"], and generated_ideas to "• Please enter meaningful thoughts or topics to generate AI insights." Otherwise, return a JSON object with exact keys: "title" (concise descriptive title), "summary" (2-sentence executive summary), "tags" (array of 3-5 tags), "generated_ideas" (3-5 markdown bullet points tailored specifically to the context).',
                             ],
                             [
                                 'role' => 'user',
-                                'content' => $clean,
+                                'content' => $correctedContent,
                             ],
                         ],
                         'temperature' => 0.3,
@@ -68,7 +71,89 @@ class OpenAIService
             }
         }
 
-        return $this->fallbackAnalysis($clean);
+        return $this->fallbackAnalysis($correctedContent);
+    }
+
+    /**
+     * Auto-correct common typos and misspelled words using dictionary mapping and Levenshtein distance.
+     */
+    protected function correctSpelling(string $text): string
+    {
+        // Common exact typo mapping dictionary
+        $replacements = [
+            'videoes' => 'videos',
+            'vidio' => 'videos',
+            'vidoes' => 'videos',
+            'budge' => 'budgie',
+            'bujie' => 'budgie',
+            'budgi' => 'budgie',
+            'larvel' => 'laravel',
+            'laraval' => 'laravel',
+            'pythn' => 'python',
+            'pyton' => 'python',
+            'javascrip' => 'javascript',
+            'valornt' => 'valorant',
+            'valarant' => 'valorant',
+            'volorant' => 'valorant',
+            'resipe' => 'recipe',
+            'recipie' => 'recipe',
+            'workut' => 'workout',
+            'worout' => 'workout',
+            'yotube' => 'youtube',
+            'utube' => 'youtube',
+            'watc' => 'watch',
+            'wath' => 'watch',
+            'speel' => 'spell',
+            'accoding' => 'according',
+            'tutorail' => 'tutorial',
+            'tutoral' => 'tutorial',
+            'projct' => 'project',
+            'ideea' => 'idea',
+            'excercise' => 'exercise',
+            'exersice' => 'exercise',
+        ];
+
+        $dictionary = [
+            'valorant', 'youtube', 'laravel', 'python', 'javascript', 'budgie', 'videos',
+            'recipe', 'workout', 'tutorial', 'project', 'gaming', 'study', 'exercise',
+            'business', 'fitness', 'health', 'shopping', 'software', 'programming',
+        ];
+
+        $words = explode(' ', $text);
+        $corrected = [];
+
+        foreach ($words as $word) {
+            $cleanWord = strtolower(trim($word, ".,!?\"'"));
+            if (isset($replacements[$cleanWord])) {
+                $corrected[] = $replacements[$cleanWord];
+
+                continue;
+            }
+
+            // Fuzzy Levenshtein match for words of 4+ letters
+            if (strlen($cleanWord) >= 4) {
+                $closest = null;
+                $shortest = 3; // Maximum allowed edit distance is 2
+
+                foreach ($dictionary as $dictWord) {
+                    $lev = levenshtein($cleanWord, $dictWord);
+                    if ($lev < $shortest && $lev <= 2) {
+                        $closest = $dictWord;
+                        $shortest = $lev;
+                    }
+                }
+
+                if ($closest !== null) {
+                    $corrected[] = $closest;
+
+                    continue;
+                }
+            }
+
+            $corrected[] = $word;
+        }
+
+        return implode(' ', $corrected);
     }
 
     /**
