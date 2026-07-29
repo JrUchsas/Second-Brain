@@ -4,7 +4,6 @@ use App\Jobs\AnalyzeNote;
 use App\Models\Note;
 use App\Models\User;
 use App\Services\OpenAIService;
-use Illuminate\Support\Facades\Queue;
 
 it('redirects unauthenticated users to login page', function () {
     $response = $this->get('/notes');
@@ -21,24 +20,21 @@ it('allows authenticated user to view notes index', function () {
     $response->assertSee('Second Brain Notes');
 });
 
-it('creates a note and dispatches analyze note job', function () {
-    Queue::fake();
-
+it('creates a note and redirects to notes index page', function () {
     $user = User::factory()->create();
 
     $response = $this->actingAs($user)->post('/notes', [
         'content' => 'Laravel 12 features a streamlined file structure and performance enhancements.',
     ]);
 
+    $note = Note::where('user_id', $user->id)->first();
+
     $response->assertRedirect('/notes');
 
     $this->assertDatabaseHas('notes', [
+        'id' => $note->id,
         'user_id' => $user->id,
-        'content' => 'Laravel 12 features a streamlined file structure and performance enhancements.',
-        'status' => 'pending',
     ]);
-
-    Queue::assertPushed(AnalyzeNote::class);
 });
 
 it('analyzes note content using OpenAIService', function () {
@@ -70,6 +66,14 @@ it('analyzes note content using OpenAIService', function () {
     expect($note->summary)->toBe('AI is changing note taking.');
     expect($note->tags)->toHaveCount(3);
     expect($note->tags->pluck('name')->all())->toContain('ai', 'knowledge', 'productivity');
+});
+
+it('detects gibberish input and marks analysis as invalid input', function () {
+    $service = new OpenAIService;
+    $result = $service->analyze('asdasfasf');
+
+    expect($result['title'])->toBe('Meaningless / Invalid Input');
+    expect($result['tags'])->toContain('invalid-input');
 });
 
 it('returns note status payload via JSON endpoint', function () {

@@ -60,7 +60,7 @@
                         if (data.status === 'completed' || data.status === 'failed') {
                             window.location.reload();
                         }
-                    }, 3000);
+                    }, 1000);
                 }
             }
         }}"

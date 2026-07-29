@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Jobs\AnalyzeNote;
 use App\Models\Note;
+use App\Services\OpenAIService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class NoteController extends Controller
@@ -37,12 +39,12 @@ class NoteController extends Controller
     }
 
     /**
-     * Store a newly created note in storage.
+     * Store a newly created note in storage and trigger asynchronous AI analysis.
      */
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'content' => ['required', 'string', 'min:5'],
+            'content' => ['required', 'string', 'min:3'],
         ]);
 
         /** @var Note $note */
@@ -51,11 +53,16 @@ class NoteController extends Controller
             'status' => 'pending',
         ]);
 
-        AnalyzeNote::dispatch($note);
+        // Execute background job after sending response so the user sees live real-time status progression on dashboard
+        dispatch(function () use ($note) {
+            $note->update(['status' => 'processing']);
+            sleep(2); // Short delay to showcase live processing on the dashboard
+            app(AnalyzeNote::class, ['note' => $note])->handle(app(OpenAIService::class));
+        })->afterResponse();
 
         return redirect()
             ->route('notes.index')
-            ->with('status', 'Note saved! AI is processing title, summary, and tags in the background.');
+            ->with('status', 'Note submitted! Watch the real-time AI processing on your dashboard.');
     }
 
     /**
@@ -73,17 +80,20 @@ class NoteController extends Controller
     }
 
     /**
-     * Check the status of a specific note for polling.
+     * Check the status of a specific note for live real-time polling.
      */
     public function status(Note $note): JsonResponse
     {
         abort_if($note->user_id !== auth()->id(), 403);
 
+        $note->load('tags');
+
         return response()->json([
             'id' => $note->id,
             'status' => $note->status,
-            'title' => $note->title,
-            'summary' => $note->summary,
+            'title' => $note->title ?? 'Untitled Note',
+            'summary' => $note->summary ?? Str::limit($note->content, 140),
+            'tags' => $note->tags->pluck('name')->all(),
         ]);
     }
 
